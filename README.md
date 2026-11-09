@@ -4,6 +4,13 @@
 
 ![底部统计条：显示在 Codex 输入框正下方](docs/bottom-bar.png)
 
+点击任一组摘要会弹出详情：
+
+<p>
+  <img src="docs/detail-session.png" alt="会话统计详情" width="360">
+  <img src="docs/detail-tokens.png" alt="Token 用量详情" width="360">
+</p>
+
 本项目包含两部分，可以单独使用：
 
 - **Codex 插件**：在对话里输入 `@会话统计`，会在对话中或右侧标签页打开统计面板，每 3 秒刷新一次。
@@ -68,9 +75,24 @@ plugins\session-stats\bar\build.cmd
 - 右键统计条可以退出。
 - 背景透明，会根据背后颜色自动切换深色或浅色文字。
 
+统计条是一个独立的小程序，**不会随 Codex 自动启动**。它启动后会一直在后台等待：Codex 打开时自动出现，关闭或最小化时自动隐藏，所以只需要让它开机启动一次即可。
+
 ### 开机自启（可选）
 
-按 `Win + R`，输入 `shell:startup` 打开启动文件夹，把 `SessionStatsBar.exe` 的快捷方式放进去即可。
+按 `Win + R`，输入 `shell:startup` 打开启动文件夹，把 `SessionStatsBar.exe` 的快捷方式放进去即可。之后每次开机它都会在后台运行，打开 Codex 时统计条会自动出现。
+
+也可以在 PowerShell 里一次完成（在仓库根目录执行）：
+
+```powershell
+$exe = (Resolve-Path plugins\session-stats\bar\SessionStatsBar.exe).Path
+$lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'Codex Session Stats Bar.lnk'
+$shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+$shortcut.TargetPath = $exe
+$shortcut.WorkingDirectory = Split-Path $exe
+$shortcut.Save()
+```
+
+取消开机自启：删除启动文件夹里的这个快捷方式即可。
 
 ### 工作原理
 
