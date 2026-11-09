@@ -17,7 +17,7 @@ Click either summary to open its detail card:
 
 The project has two parts, and you can use either one on its own:
 
-- **Codex plugin**: type `@会话统计` in a chat to open the stats panel inline or in a side tab. It refreshes every 3 seconds.
+- **Codex plugin**: type `@会话统计` in a chat to open the stats panel inline or in a side tab. It refreshes every second.
 - **Bottom bar (Windows only)**: a small transparent bar centered right below the Codex composer that follows the Codex window. Click a summary to open a detail card; click anywhere else to close it. After the first run it starts automatically when you sign in to Windows.
 
 All data is read locally from the session logs Codex writes to `~/.codex/sessions`. Nothing is uploaded.
@@ -36,7 +36,8 @@ The panel also shows current context window usage.
 - **Token counts** come straight from the cumulative usage in the Codex logs, so they are exact.
 - **TTFT** comes from the per-turn first-token time Codex records. A turn that is still running has no value yet, so it may briefly show `—`.
 - **Model time** is each turn's duration minus the time spent in tool calls. It still includes time spent waiting for the first token and short gaps between steps.
-- **Output speed** is output tokens divided by **generation time**: the time Codex records between the first and last token of each reasoning block and reply, with overlaps counted once. Waiting for the first token, tool calls, and gaps between steps are excluded, so it reflects how fast the model actually writes. If a log has no such timing, it falls back to output tokens divided by model time.
+- **Output speed** is measured per step (one model request). Each step's window runs from the first reasoning or reply output Codex records for that step to the step's token-usage record. If a step has no timed output, the window starts at the turn start, the last tool result, or the end of the previous step. TPS is the output tokens of these steps divided by the sum of their windows, so the tokens and the time always come from the same steps. Time spent waiting for tools is excluded, and windows over 10 minutes are skipped.
+- **Continued chats**: when Codex continues a long chat in a new log file, all of that chat's log files are combined, so turns, steps, and TPS cover the whole chat.
 - **Update cadence**: Codex writes usage once per step, so the numbers jump step by step rather than counting up token by token.
 
 ## Requirements

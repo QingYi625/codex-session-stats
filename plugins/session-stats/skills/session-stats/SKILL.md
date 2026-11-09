@@ -5,4 +5,4 @@ description: Use when the user asks to see, open, or check Codex session statist
 
 Call the `session_stats_panel` tool to open the live statistics panel. It reads the local Codex session log, so it needs no arguments; pass `threadId` only when the user names a specific chat ID.
 
-After the panel opens, report the headline numbers from the tool's text result in one or two sentences. Note that TTFT comes from Codex's per-turn records and output speed is estimated as output tokens divided by model time, so they can differ from other displays.
+After the panel opens, report the headline numbers from the tool's text result in one or two sentences. Note that TTFT comes from Codex's per-turn records and output speed is estimated per model request from Codex's output timestamps, so they can differ from other displays.

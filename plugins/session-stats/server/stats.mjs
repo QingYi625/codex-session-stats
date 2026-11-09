@@ -10,10 +10,13 @@ const GENERATION_ITEM_TYPES = new Set(["Reasoning", "AgentMessage"]);
 const RECENT_DAYS = 14;
 const RECENT_LIMIT = 30;
 const LIVE_IDLE_MS = 15 * 60 * 1000;
+const TPS_MAX_STEP_WINDOW_MS = 10 * 60 * 1000;
 
 const fileStates = new Map();
 const metaCache = new Map();
 const activityCache = new Map();
+const RECENT_FILES_TTL_MS = 500;
+let recentFilesCache = { atMs: 0, files: [] };
 let indexCache = { mtimeMs: -1, size: -1, titles: new Map() };
 
 function readFirstLine(filePath) {
@@ -109,6 +112,7 @@ function lastActivityMs(filePath, size, fallbackMs) {
 }
 
 function recentSessionFiles() {
+  if (Date.now() - recentFilesCache.atMs < RECENT_FILES_TTL_MS) return recentFilesCache.files;
   const files = [];
   const now = new Date();
   for (let dayOffset = 0; dayOffset < RECENT_DAYS; dayOffset += 1) {
@@ -135,15 +139,18 @@ function recentSessionFiles() {
     }
   }
   files.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  recentFilesCache = { atMs: Date.now(), files };
   return files;
 }
 
 export function listRecentThreads() {
   const titles = readTitles();
   const threads = [];
+  const seen = new Set();
   for (const file of recentSessionFiles()) {
     const meta = readMeta(file.filePath);
-    if (!meta || meta.isSubagent || !meta.id) continue;
+    if (!meta || meta.isSubagent || !meta.id || seen.has(meta.id)) continue;
+    seen.add(meta.id);
     threads.push({
       id: meta.id,
       title: titles.get(meta.id) || path.basename(meta.cwd) || meta.id,
@@ -157,13 +164,18 @@ export function listRecentThreads() {
 }
 
 function findThreadFile(threadId) {
+  return findThreadFiles(threadId).at(-1) || null;
+}
+
+function findThreadFiles(threadId) {
+  const matches = [];
   for (const file of recentSessionFiles()) {
-    if (path.basename(file.filePath).includes(threadId)) {
-      const meta = readMeta(file.filePath);
-      if (meta && meta.id === threadId) return file.filePath;
-    }
+    if (!path.basename(file.filePath).includes(threadId)) continue;
+    const meta = readMeta(file.filePath);
+    if (meta && meta.id === threadId) matches.push({ filePath: file.filePath, startedMs: Date.parse(meta.startedAt) || 0 });
   }
-  return null;
+  matches.sort((a, b) => a.startedMs - b.startedMs || a.filePath.localeCompare(b.filePath));
+  return matches.map((match) => match.filePath);
 }
 
 function newState(filePath) {
@@ -176,8 +188,13 @@ function newState(filePath) {
     steps: 0,
     toolCount: 0,
     toolTimeMs: 0,
-    generationIntervals: [],
-    generationMerged: null,
+    stepBoundaryMs: 0,
+    stepFirstGenerationMs: null,
+    stepGenerationSeen: false,
+    tpsOutputTokens: 0,
+    tpsWindowMs: 0,
+    tpsIncludedSteps: 0,
+    tpsExcludedSteps: 0,
     totalUsage: null,
     lastUsage: null,
     contextWindow: null,
@@ -201,7 +218,14 @@ function handleRecord(state, line) {
   const head = line.slice(0, 480);
   const isEvent = head.includes('"type":"event_msg"');
   const isUsageRecord = head.includes('"type":"token_usage_record"');
+  const isToolOutput = head.includes('"type":"response_item"') && /"payload":\{"type":"[a-z_]+_output"/.test(head);
   const isSettings = isEvent && head.includes('"type":"thread_settings_applied"');
+  if (isToolOutput) {
+    const match = /"timestamp":"([^"]+)"/.exec(head);
+    const timestampMs = match ? Date.parse(match[1]) || 0 : 0;
+    if (!state.stepGenerationSeen && timestampMs > state.stepBoundaryMs) state.stepBoundaryMs = timestampMs;
+    return;
+  }
   if (!isEvent && !isUsageRecord) return;
   if (isEvent) {
     const wanted =
@@ -226,6 +250,7 @@ function handleRecord(state, line) {
 
   if (record.type === "token_usage_record") {
     state.steps += 1;
+    settleStep(state, timestampMs, (payload.usage && payload.usage.output_tokens) || 0);
     if (payload.thread_token_usage) state.totalUsage = payload.thread_token_usage;
     if (payload.usage) state.lastUsage = payload.usage;
     return;
@@ -236,6 +261,9 @@ function handleRecord(state, line) {
       const turn = ensureTurn(state, payload.turn_id, timestampMs);
       if (payload.model_context_window) state.contextWindow = payload.model_context_window;
       turn.endedMs = null;
+      state.stepBoundaryMs = timestampMs;
+      state.stepFirstGenerationMs = null;
+      state.stepGenerationSeen = false;
       break;
     }
     case "task_complete":
@@ -265,7 +293,10 @@ function handleRecord(state, line) {
       if (GENERATION_ITEM_TYPES.has(item.type)) {
         const start = payload.started_at_ms;
         const end = payload.completed_at_ms;
-        if (start && end && end > start) addGenerationInterval(state, start, end);
+        state.stepGenerationSeen = true;
+        if (start && end && end > start && (state.stepFirstGenerationMs === null || start < state.stepFirstGenerationMs)) {
+          state.stepFirstGenerationMs = start;
+        }
         break;
       }
       if (!TOOL_ITEM_TYPES.has(item.type)) break;
@@ -347,29 +378,59 @@ function unionLength(intervals, lower, upper) {
   return total;
 }
 
-function addGenerationInterval(state, start, end) {
-  state.generationIntervals.push([start, end]);
-  state.generationMerged = null;
+function settleStep(state, completedMs, outputTokens) {
+  const startMs = state.stepFirstGenerationMs ?? state.stepBoundaryMs;
+  const windowMs = startMs && completedMs ? completedMs - startMs : 0;
+  if (windowMs > 0 && windowMs <= TPS_MAX_STEP_WINDOW_MS) {
+    state.tpsOutputTokens += outputTokens;
+    state.tpsWindowMs += windowMs;
+    state.tpsIncludedSteps += 1;
+  } else {
+    state.tpsExcludedSteps += 1;
+  }
+  state.stepBoundaryMs = completedMs;
+  state.stepFirstGenerationMs = null;
+  state.stepGenerationSeen = false;
 }
 
-function generationTimeMs(state) {
-  if (state.generationMerged !== null) return state.generationMerged;
-  const sorted = state.generationIntervals.slice().sort((a, b) => a[0] - b[0]);
-  let total = 0;
-  let currentStart = null;
-  let currentEnd = null;
-  for (const [start, end] of sorted) {
-    if (currentEnd === null || start > currentEnd) {
-      if (currentEnd !== null) total += currentEnd - currentStart;
-      currentStart = start;
-      currentEnd = end;
-    } else if (end > currentEnd) {
-      currentEnd = end;
+function mergeStates(states) {
+  if (states.length === 1) return states[0];
+  const merged = {
+    turns: new Map(),
+    turnOrder: [],
+    steps: 0,
+    toolCount: 0,
+    toolTimeMs: 0,
+    tpsOutputTokens: 0,
+    tpsWindowMs: 0,
+    tpsIncludedSteps: 0,
+    tpsExcludedSteps: 0,
+    totalUsage: null,
+    lastUsage: null,
+    contextWindow: null,
+    lastEventMs: 0,
+    model: null,
+  };
+  for (const state of states) {
+    for (const turnId of state.turnOrder) {
+      if (merged.turns.has(turnId)) continue;
+      merged.turns.set(turnId, state.turns.get(turnId));
+      merged.turnOrder.push(turnId);
     }
+    merged.steps += state.steps;
+    merged.toolCount += state.toolCount;
+    merged.toolTimeMs += state.toolTimeMs;
+    merged.tpsOutputTokens += state.tpsOutputTokens;
+    merged.tpsWindowMs += state.tpsWindowMs;
+    merged.tpsIncludedSteps += state.tpsIncludedSteps;
+    merged.tpsExcludedSteps += state.tpsExcludedSteps;
+    if (state.totalUsage) merged.totalUsage = state.totalUsage;
+    if (state.lastUsage) merged.lastUsage = state.lastUsage;
+    if (state.contextWindow) merged.contextWindow = state.contextWindow;
+    if (state.model) merged.model = state.model;
+    merged.lastEventMs = Math.max(merged.lastEventMs, state.lastEventMs);
   }
-  if (currentEnd !== null) total += currentEnd - currentStart;
-  state.generationMerged = total;
-  return total;
+  return merged;
 }
 
 function summarize(state, now) {
@@ -400,7 +461,6 @@ function summarize(state, now) {
   const cachedTokens = usage.cached_input_tokens || 0;
   const outputTokens = usage.output_tokens || 0;
   const lastInput = (state.lastUsage && state.lastUsage.input_tokens) || 0;
-  const generationMs = generationTimeMs(state);
   return {
     turns: state.turnOrder.length,
     steps: state.steps,
@@ -409,8 +469,14 @@ function summarize(state, now) {
     modelTimeMs,
     toolTimeMs: state.toolTimeMs,
     avgTtftMs: ttftCount ? Math.round(ttftSum / ttftCount) : null,
-    generationTimeMs: generationMs,
-    outputTps: generationMs > 0 ? outputTokens / (generationMs / 1000) : modelTimeMs > 0 ? outputTokens / (modelTimeMs / 1000) : null,
+    generationTimeMs: state.tpsWindowMs,
+    outputTps: state.tpsWindowMs > 0 ? state.tpsOutputTokens / (state.tpsWindowMs / 1000) : null,
+    tps: {
+      includedSteps: state.tpsIncludedSteps,
+      excludedSteps: state.tpsExcludedSteps,
+      outputTokens: state.tpsOutputTokens,
+      windowMs: state.tpsWindowMs,
+    },
     tokens: {
       total: inputTokens + outputTokens,
       input: inputTokens,
@@ -483,11 +549,13 @@ export function getSessionStats({ threadId, hintIds = [], title } = {}) {
     return { ok: false, error: `没有在 ${SESSIONS_DIR} 找到最近的会话日志`, threads, generatedAt: new Date().toISOString() };
   }
   const now = Date.now();
-  const state = updateState(target.filePath);
+  const files = findThreadFiles(target.id);
+  if (!files.includes(target.filePath)) files.push(target.filePath);
+  const state = mergeStates(files.map((filePath) => updateState(filePath)));
   return {
     ok: true,
     selection,
-    thread: { id: target.id, title: target.title, cwd: target.cwd || "" },
+    thread: { id: target.id, title: target.title, cwd: target.cwd || "", files: files.length },
     stats: summarize(state, now),
     threads,
     generatedAt: new Date(now).toISOString(),

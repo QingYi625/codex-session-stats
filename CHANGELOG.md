@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format is based on 
 
 本项目的重要改动都记录在这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.4.0] - 2026-11-09
+
+### Changed / 变更
+
+- **Refreshes every second.** The stats panel and the bottom bar now update every second instead of every 3 seconds.
+- **面板和底部统计条改为每秒刷新**，以前是每 3 秒。
+
+### Fixed / 修复
+
+- **TPS no longer jumps to thousands of tok/s in continued chats.** When Codex continues a long chat in a new log file, the new file carries the whole chat's output total but only its own timing, so one chat showed 8,145 tok/s. All log files of a chat are now combined, and TPS is computed per model request, so the tokens and the time always come from the same steps. Across all 368 local chats, the highest value is now 275 tok/s.
+- **续接的对话不会再出现几千 tok/s。** Codex 把长对话续写到新日志文件时，新文件带着整段对话的输出总量，但时间只有新文件自己的，所以有个对话显示 8,145 tok/s。现在会把同一对话的所有日志文件合在一起，并按每次模型请求计算 TPS，Token 和时间始终来自同一批步骤。本机全部 368 个对话里，最高值现在是 275 tok/s。
+- 0.3.0 only counted output blocks with a recorded duration. Many blocks start and end at the same instant, so their tokens were counted without their time and TPS read high. 0.4.0 counts each request's whole output window, which gives lower but consistent numbers.
+- 0.3.0 只统计记录了时长的输出块。很多输出块的开始和结束是同一时刻，它们的 Token 被算进去了，时间却没算，所以数值偏高。0.4.0 按每次请求的完整输出时间计算，数值更低，但口径一致。
+
+| Chat / 对话 | 0.3.0 | 0.4.0 |
+| --- | --- | --- |
+| Continued chat / 续接的对话 | 8,145 tok/s | 39.3 tok/s |
+| Claude Opus chat / Claude Opus 对话 | 100 tok/s | 51.2 tok/s |
+| GPT-6.1 Sol chat / GPT-6.1 Sol 对话 | 44.2 tok/s | 28.7 tok/s |
+
 ## [0.3.0] - 2026-11-09
 
 ### Changed / 变更
@@ -45,6 +65,7 @@ First public release. / 首个公开版本。
 - 统计条默认开机自启，可以右键切换，也可以用 `--no-autostart` 参数关闭。
 - 中英双语 README。
 
+[0.4.0]: https://github.com/QingYi625/codex-session-stats/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/QingYi625/codex-session-stats/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/QingYi625/codex-session-stats/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/QingYi625/codex-session-stats/releases/tag/v0.1.0
