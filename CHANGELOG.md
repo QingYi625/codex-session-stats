@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on 
 
 本项目的重要改动都记录在这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0] - 2026-11-09
+
+### Changed / 变更
+
+- **Output speed (TPS) is now based on generation time.** It used to divide output tokens by model time, which also counted waiting for the first token and the gaps between steps, so it read far too low. It now divides by the time Codex records between the first and last token of each reasoning block and reply, with overlaps counted once. Model time is still shown as before.
+- **输出速度（TPS）改为按实际生成时间计算。** 以前用输出 Token 除以模型用时，模型用时里还包含等待首 token 和步与步之间的空隙，所以数字明显偏低。现在除以 Codex 记录的每段思考和回复从开始输出到结束的时间，重叠部分只算一次。模型用时照常显示。
+
+| Chat / 对话 | Before / 之前 | After / 之后 |
+| --- | --- | --- |
+| Claude Opus chat / Claude Opus 对话 | 30.3 tok/s | 97.7 tok/s |
+| GPT-6.1 Sol chat / GPT-6.1 Sol 对话 | 18.8 tok/s | 44.2 tok/s |
+
 ## [0.2.0] - 2026-11-09
 
 ### Fixed / 修复
@@ -33,5 +45,6 @@ First public release. / 首个公开版本。
 - 统计条默认开机自启，可以右键切换，也可以用 `--no-autostart` 参数关闭。
 - 中英双语 README。
 
+[0.3.0]: https://github.com/QingYi625/codex-session-stats/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/QingYi625/codex-session-stats/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/QingYi625/codex-session-stats/releases/tag/v0.1.0

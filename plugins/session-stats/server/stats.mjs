@@ -6,6 +6,7 @@ const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
 const SESSIONS_DIR = path.join(CODEX_HOME, "sessions");
 const INDEX_FILE = path.join(CODEX_HOME, "session_index.jsonl");
 const TOOL_ITEM_TYPES = new Set(["CommandExecution", "McpToolCall", "FileChange", "Extension", "ImageView", "WebSearch"]);
+const GENERATION_ITEM_TYPES = new Set(["Reasoning", "AgentMessage"]);
 const RECENT_DAYS = 14;
 const RECENT_LIMIT = 30;
 const LIVE_IDLE_MS = 15 * 60 * 1000;
@@ -175,6 +176,8 @@ function newState(filePath) {
     steps: 0,
     toolCount: 0,
     toolTimeMs: 0,
+    generationIntervals: [],
+    generationMerged: null,
     totalUsage: null,
     lastUsage: null,
     contextWindow: null,
@@ -208,7 +211,7 @@ function handleRecord(state, line) {
       head.includes('"type":"token_count"') ||
       isSettings ||
       (head.includes('"type":"item_completed"') &&
-        [...TOOL_ITEM_TYPES].some((type) => head.includes(`"item":{"type":"${type}"`)));
+        [...TOOL_ITEM_TYPES, ...GENERATION_ITEM_TYPES].some((type) => head.includes(`"item":{"type":"${type}"`)));
     if (!wanted) return;
   }
   let record;
@@ -259,6 +262,12 @@ function handleRecord(state, line) {
     }
     case "item_completed": {
       const item = payload.item || {};
+      if (GENERATION_ITEM_TYPES.has(item.type)) {
+        const start = payload.started_at_ms;
+        const end = payload.completed_at_ms;
+        if (start && end && end > start) addGenerationInterval(state, start, end);
+        break;
+      }
       if (!TOOL_ITEM_TYPES.has(item.type)) break;
       const startMs = payload.started_at_ms || timestampMs;
       let endMs = payload.completed_at_ms || timestampMs;
@@ -338,6 +347,31 @@ function unionLength(intervals, lower, upper) {
   return total;
 }
 
+function addGenerationInterval(state, start, end) {
+  state.generationIntervals.push([start, end]);
+  state.generationMerged = null;
+}
+
+function generationTimeMs(state) {
+  if (state.generationMerged !== null) return state.generationMerged;
+  const sorted = state.generationIntervals.slice().sort((a, b) => a[0] - b[0]);
+  let total = 0;
+  let currentStart = null;
+  let currentEnd = null;
+  for (const [start, end] of sorted) {
+    if (currentEnd === null || start > currentEnd) {
+      if (currentEnd !== null) total += currentEnd - currentStart;
+      currentStart = start;
+      currentEnd = end;
+    } else if (end > currentEnd) {
+      currentEnd = end;
+    }
+  }
+  if (currentEnd !== null) total += currentEnd - currentStart;
+  state.generationMerged = total;
+  return total;
+}
+
 function summarize(state, now) {
   let modelTimeMs = 0;
   let ttftSum = 0;
@@ -366,6 +400,7 @@ function summarize(state, now) {
   const cachedTokens = usage.cached_input_tokens || 0;
   const outputTokens = usage.output_tokens || 0;
   const lastInput = (state.lastUsage && state.lastUsage.input_tokens) || 0;
+  const generationMs = generationTimeMs(state);
   return {
     turns: state.turnOrder.length,
     steps: state.steps,
@@ -374,7 +409,8 @@ function summarize(state, now) {
     modelTimeMs,
     toolTimeMs: state.toolTimeMs,
     avgTtftMs: ttftCount ? Math.round(ttftSum / ttftCount) : null,
-    outputTps: modelTimeMs > 0 ? outputTokens / (modelTimeMs / 1000) : null,
+    generationTimeMs: generationMs,
+    outputTps: generationMs > 0 ? outputTokens / (generationMs / 1000) : modelTimeMs > 0 ? outputTokens / (modelTimeMs / 1000) : null,
     tokens: {
       total: inputTokens + outputTokens,
       input: inputTokens,

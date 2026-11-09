@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "session-stats",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "在 Codex 对话旁显示实时会话统计：轮数、步数、模型与工具用时、首 token 时间、输出速度和 Token 缓存用量。",
   "author": { "name": "QingYi625", "url": "https://github.com/QingYi625" },
   "repository": "https://github.com/QingYi625/codex-session-stats",

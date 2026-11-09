@@ -35,8 +35,8 @@ The panel also shows current context window usage.
 
 - **Token counts** come straight from the cumulative usage in the Codex logs, so they are exact.
 - **TTFT** comes from the per-turn first-token time Codex records. A turn that is still running has no value yet, so it may briefly show `—`.
-- **Model time** is each turn's duration minus the time spent in tool calls. It is an estimate.
-- **Output speed** is output tokens divided by model time. It is an estimate and may differ from numbers shown by other tools.
+- **Model time** is each turn's duration minus the time spent in tool calls. It still includes time spent waiting for the first token and short gaps between steps.
+- **Output speed** is output tokens divided by **generation time**: the time Codex records between the first and last token of each reasoning block and reply, with overlaps counted once. Waiting for the first token, tool calls, and gaps between steps are excluded, so it reflects how fast the model actually writes. If a log has no such timing, it falls back to output tokens divided by model time.
 - **Update cadence**: Codex writes usage once per step, so the numbers jump step by step rather than counting up token by token.
 
 ## Requirements
