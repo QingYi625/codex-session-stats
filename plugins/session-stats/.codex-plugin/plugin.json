@@ -11,7 +11,7 @@
   "interface": {
     "displayName": "会话统计",
     "shortDescription": "实时查看会话 Token 与用时",
-    "longDescription": "读取本机 Codex 会话日志，在对话旁的面板中每 3 秒刷新一次轮数、步数、模型用时、工具调用用时、首 token 平均时间、输出速度、Token 总量、缓存命中率和上下文占用。数据只在本机读取，不会上传。",
+    "longDescription": "读取本机 Codex 会话日志，在对话旁的面板中每秒刷新一次轮数、步数、模型用时、工具调用用时、首 token 平均时间、输出速度、Token 总量、缓存命中率和上下文占用。数据只在本机读取，不会上传。",
     "developerName": "QingYi625",
     "category": "Developer Tools",
     "capabilities": ["Interactive", "Read"],
