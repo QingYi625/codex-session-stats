@@ -1,0 +1,25 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "session-stats",
+  "version": "0.1.0",
+  "description": "在 Codex 对话旁显示实时会话统计：轮数、步数、模型与工具用时、首 token 时间、输出速度和 Token 缓存用量。",
+  "author": { "name": "QingYi625", "url": "https://github.com/QingYi625" },
+  "repository": "https://github.com/QingYi625/codex-session-stats",
+  "license": "MIT",
+  "keywords": ["codex", "tokens", "usage", "statistics"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "会话统计",
+        "shortDescription": "实时查看会话 Token 与用时",
+        "longDescription": "读取本机 Codex 会话日志，在对话旁的面板中每 3 秒刷新一次轮数、步数、模型用时、工具调用用时、首 token 平均时间、输出速度、Token 总量、缓存命中率和上下文占用。数据只在本机读取，不会上传。",
+        "developerName": "QingYi625",
+        "category": "Developer Tools",
+        "capabilities": ["Interactive", "Read"],
+        "defaultPrompt": "打开会话统计面板",
+        "composerIcon": "./assets/icon.svg",
+        "logo": "./assets/icon.svg"
+      }
+    }
+  }
+}
