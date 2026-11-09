@@ -319,6 +319,8 @@ internal sealed class StatsBar : Form
     private int composerBaseWidth;
     private int lastWidth, lastHeight;
     private AutomationElement composer;
+    private AutomationElement document;
+    private string lastTitle = "";
     private DateTime lastFullSearch = DateTime.MinValue;
     private long lastResizeTicks;
 
@@ -767,6 +769,7 @@ internal sealed class StatsBar : Form
             if (closing) return;
             IntPtr target = host;
             if (target == IntPtr.Zero) continue;
+            ReadActiveTitle(target);
             if (!signaled)
             {
                 if (!moving && !Native.IsIconic(target)) TryProbe(target);
@@ -782,6 +785,49 @@ internal sealed class StatsBar : Form
                 if (TryProbe(target)) break;
             }
         }
+    }
+
+    private void ReadActiveTitle(IntPtr target)
+    {
+        try
+        {
+            string title = null;
+            if (document != null)
+            {
+                try { title = document.Current.Name; } catch { document = null; }
+            }
+            if (document == null)
+            {
+                var root = AutomationElement.FromHandle(target);
+                document = root.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Document));
+                if (document == null) return;
+                title = document.Current.Name;
+            }
+            title = (title ?? "").Trim();
+            if (title.Length == 0 || title == lastTitle) return;
+            lastTitle = title;
+            SendTitle(title);
+        }
+        catch (Exception error)
+        {
+            document = null;
+            Log("title error: " + error.Message);
+        }
+    }
+
+    private void SendTitle(string title)
+    {
+        var process = feed;
+        if (process == null) return;
+        try
+        {
+            if (process.HasExited) return;
+            var json = new JavaScriptSerializer().Serialize(new Dictionary<string, object> { { "title", title } });
+            var bytes = Encoding.UTF8.GetBytes(json + "\n");
+            process.StandardInput.BaseStream.Write(bytes, 0, bytes.Length);
+            process.StandardInput.BaseStream.Flush();
+        }
+        catch (Exception error) { Log("send title error: " + error.Message); }
     }
 
     private static bool CenterInside(System.Windows.Rect r, Native.RECT hostRect)

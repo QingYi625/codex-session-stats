@@ -394,7 +394,25 @@ function summarize(state, now) {
   };
 }
 
-export function getSessionStats({ threadId, hintIds = [] } = {}) {
+function normalizeTitle(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function findThreadByTitle(title, recent) {
+  const wanted = normalizeTitle(title);
+  if (!wanted) return null;
+  const candidates = recent.filter((thread) => normalizeTitle(thread.title) === wanted);
+  if (candidates.length) return candidates[0];
+  const ids = [];
+  for (const [id, name] of readTitles()) if (normalizeTitle(name) === wanted) ids.push(id);
+  for (const id of ids.reverse()) {
+    const filePath = findThreadFile(id);
+    if (filePath) return { id, title, filePath, cwd: "" };
+  }
+  return null;
+}
+
+export function getSessionStats({ threadId, hintIds = [], title } = {}) {
   const recent = listRecentThreads();
   let target = null;
   let selection = "auto";
@@ -415,6 +433,10 @@ export function getSessionStats({ threadId, hintIds = [] } = {}) {
         break;
       }
     }
+  }
+  if (!target && title) {
+    target = findThreadByTitle(title, recent);
+    if (target) selection = "window";
   }
   if (!target) {
     target = recent[0] || null;

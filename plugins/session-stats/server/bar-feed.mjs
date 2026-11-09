@@ -1,6 +1,8 @@
 import { getSessionStats } from "./stats.mjs";
+import readline from "node:readline";
 
 const INTERVAL_MS = Number(process.env.SESSION_STATS_INTERVAL_MS) || 3000;
+let activeTitle = "";
 
 function compact(value) {
   if (value === null || value === undefined) return "—";
@@ -24,7 +26,7 @@ function duration(ms) {
 
 function payload() {
   try {
-    const result = getSessionStats();
+    const result = getSessionStats({ title: activeTitle });
     if (!result.ok) return { ok: false, message: "暂无会话" };
     const s = result.stats;
     const t = s.tokens;
@@ -64,7 +66,25 @@ function emit() {
   process.stdout.write(JSON.stringify(payload()) + "\n");
 }
 
-emit();
-setInterval(emit, INTERVAL_MS);
-process.stdin.on("end", () => process.exit(0));
-process.stdin.resume();
+let timer = null;
+function schedule() {
+  clearInterval(timer);
+  emit();
+  timer = setInterval(emit, INTERVAL_MS);
+}
+
+const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+input.on("line", (line) => {
+  let message;
+  try {
+    message = JSON.parse(line);
+  } catch {
+    return;
+  }
+  if (message && typeof message.title === "string" && message.title !== activeTitle) {
+    activeTitle = message.title;
+    schedule();
+  }
+});
+input.on("close", () => process.exit(0));
+schedule();
