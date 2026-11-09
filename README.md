@@ -14,7 +14,7 @@
 本项目包含两部分，可以单独使用：
 
 - **Codex 插件**：在对话里输入 `@会话统计`，会在对话中或右侧标签页打开统计面板，每 3 秒刷新一次。
-- **底部统计条（仅 Windows）**：一个透明的小条，贴在 Codex 输入框正下方并居中显示，跟随 Codex 窗口移动。点击其中一组摘要会弹出详情卡片，点击其他地方自动关闭。
+- **底部统计条（仅 Windows）**：一个透明的小条，贴在 Codex 输入框正下方并居中显示，跟随 Codex 窗口移动。点击其中一组摘要会弹出详情卡片，点击其他地方自动关闭。首次运行后默认开机自启。
 
 所有数据都只在本机读取，来源是 Codex 写在本地的会话日志（`~/.codex/sessions`），不会上传。
 
@@ -69,36 +69,35 @@ plugins\session-stats\bar\build.cmd
 
 编译后会生成 `plugins\session-stats\bar\SessionStatsBar.exe`，双击运行即可。
 
+**首次运行后会自动设为开机自启**，以后不用再手动打开：它开机后在后台等待，打开 Codex 时统计条自动出现，关闭或最小化 Codex 时自动隐藏。
+
 - 统计条只在 Codex 窗口可见时显示，Codex 最小化时自动隐藏。
 - 默认统计**最近活动的会话**。
 - 点击“会话统计”或“Token 用量”摘要会弹出详情，再点同一组、点其他地方都会关闭。
-- 右键统计条可以退出。
+- 右键统计条可以切换“开机自启”，或退出。
 - 背景透明，会根据背后颜色自动切换深色或浅色文字。
 
-统计条是一个独立的小程序，**不会随 Codex 自动启动**。它启动后会一直在后台等待：Codex 打开时自动出现，关闭或最小化时自动隐藏，所以只需要让它开机启动一次即可。
+### 开机自启
 
-### 开机自启（可选）
+统计条是一个独立的小程序，Codex 只在对话里用到插件时才会启动插件服务，打开 Codex 时不会顺带启动它，所以统计条用开机自启来保证“打开 Codex 就有”。
 
-按 `Win + R`，输入 `shell:startup` 打开启动文件夹，把 `SessionStatsBar.exe` 的快捷方式放进去即可。之后每次开机它都会在后台运行，打开 Codex 时统计条会自动出现。
+- **默认开启**：首次运行时，会在当前用户的启动项（`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，名称 `CodexSessionStatsBar`）里写入 exe 的路径。不需要管理员权限，只影响当前用户。
+- **关闭**：右键统计条，取消勾选“开机自启”。关闭后会记住你的选择，以后运行也不会再自动开启；想恢复就再勾选一次。也可以在“任务管理器 → 启动应用”里禁用。
+- **从一开始就不要自启**：首次运行时加参数 `--no-autostart`：
 
-也可以在 PowerShell 里一次完成（在仓库根目录执行）：
+  ```bat
+  plugins\session-stats\bar\SessionStatsBar.exe --no-autostart
+  ```
 
-```powershell
-$exe = (Resolve-Path plugins\session-stats\bar\SessionStatsBar.exe).Path
-$lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'Codex Session Stats Bar.lnk'
-$shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
-$shortcut.TargetPath = $exe
-$shortcut.WorkingDirectory = Split-Path $exe
-$shortcut.Save()
-```
-
-取消开机自启：删除启动文件夹里的这个快捷方式即可。
+- **移动了文件夹**：启动项记录的是 exe 的完整路径。移动仓库后重新运行一次 exe，它会把路径更新成新位置。
+- **卸载**：先右键统计条取消“开机自启”，再退出并删除文件夹。如果已经先删了文件夹，在“任务管理器 → 启动应用”里删除或禁用 `SessionStatsBar` 即可。设置记录保存在 `HKCU\Software\CodexSessionStats`，可以一并删除。
 
 ### 工作原理
 
 - 用 Windows 窗口事件钩子跟随 Codex 窗口移动。
 - 用 UI Automation 读取 Codex 输入框的实际位置，保证最大化、调整大小、收起侧边栏后仍然居中。
 - 打开详情时会临时注册一个低级鼠标钩子，用来实现“点外面关闭”，关闭详情后立即注销。钩子只判断点击位置，不记录任何输入。
+- 开机自启只写当前用户的 `Run` 注册表项，不创建计划任务或服务。
 
 ## 项目结构
 

@@ -13,6 +13,7 @@ using System.Threading;
 using System.Windows.Automation;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 internal static class Native
 {
@@ -81,6 +82,72 @@ internal sealed class Card
     public string Summary = "";
     public string Headline = "";
     public List<string[]> Rows = new List<string[]>();
+}
+
+internal static class Autostart
+{
+    private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string ValueName = "CodexSessionStatsBar";
+    private const string SettingsKey = @"Software\CodexSessionStats";
+    private const string ChoiceName = "AutostartChoice";
+
+    private static string Command()
+    {
+        return "\"" + Application.ExecutablePath + "\"";
+    }
+
+    public static bool IsEnabled()
+    {
+        using (var key = Registry.CurrentUser.OpenSubKey(RunKey))
+        {
+            var value = key == null ? null : key.GetValue(ValueName) as string;
+            return !string.IsNullOrEmpty(value);
+        }
+    }
+
+    public static void Set(bool enable)
+    {
+        try
+        {
+            using (var key = Registry.CurrentUser.CreateSubKey(RunKey))
+            {
+                if (enable) key.SetValue(ValueName, Command());
+                else if (key.GetValue(ValueName) != null) key.DeleteValue(ValueName, false);
+            }
+        }
+        catch { }
+    }
+
+    public static void SaveChoice(bool enable)
+    {
+        try
+        {
+            using (var key = Registry.CurrentUser.CreateSubKey(SettingsKey))
+                key.SetValue(ChoiceName, enable ? 1 : 0, RegistryValueKind.DWord);
+        }
+        catch { }
+    }
+
+    private static int? LoadChoice()
+    {
+        try
+        {
+            using (var key = Registry.CurrentUser.OpenSubKey(SettingsKey))
+            {
+                var value = key == null ? null : key.GetValue(ChoiceName);
+                return value is int ? (int?)(int)value : null;
+            }
+        }
+        catch { return null; }
+    }
+
+    public static void EnsureDefault()
+    {
+        int? choice = LoadChoice();
+        if (choice == 0) return;
+        if (choice == null) SaveChoice(true);
+        Set(true);
+    }
 }
 
 internal static class Theme
@@ -271,6 +338,16 @@ internal sealed class StatsBar : Form
         popup = new DetailPopup(scale);
 
         var menu = new ContextMenuStrip();
+        var autostartItem = new ToolStripMenuItem("开机自启") { CheckOnClick = false };
+        autostartItem.Click += (s, e) =>
+        {
+            bool enable = !Autostart.IsEnabled();
+            Autostart.Set(enable);
+            Autostart.SaveChoice(enable);
+        };
+        menu.Opening += (s, e) => autostartItem.Checked = Autostart.IsEnabled();
+        menu.Items.Add(autostartItem);
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("退出会话统计条", null, (s, e) => Close());
         ContextMenuStrip = menu;
 
@@ -817,10 +894,14 @@ internal sealed class StatsBar : Form
         {
             if (!created) return;
             Native.SetProcessDPIAware();
+            if (Array.IndexOf(args, "--no-autostart") >= 0) { Autostart.Set(false); Autostart.SaveChoice(false); }
+            else Autostart.EnsureDefault();
             float scale;
             using (var g = Graphics.FromHwnd(IntPtr.Zero)) scale = g.DpiX / 96f;
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            string script = args.Length > 0 ? args[0] : Path.GetFullPath(Path.Combine(baseDir, "..", "server", "bar-feed.mjs"));
+            string script = null;
+            foreach (var arg in args) if (!arg.StartsWith("--")) { script = arg; break; }
+            if (script == null) script = Path.GetFullPath(Path.Combine(baseDir, "..", "server", "bar-feed.mjs"));
             Application.EnableVisualStyles();
             Application.Run(new StatsBar(script, scale));
         }
